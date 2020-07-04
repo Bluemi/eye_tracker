@@ -7,7 +7,8 @@ import socket
 
 THRESHOLD = 28
 THRESHOLD_RANGE = 40
-SCALE = 0.7
+SCALE = 1.0
+REAL_EYE_DISTANCE = 6.5
 
 
 def capture_photo():
@@ -98,6 +99,9 @@ def main():
     face_cascade = cv2.CascadeClassifier('models/face_model.xml')
     eye_cascade = cv2.CascadeClassifier('models/eye_model.xml')
 
+    scale = SCALE
+    fx, fy, fz = 0.0, 0.0, 1.0
+
     with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
         vid = cv2.VideoCapture(0)
         while True:
@@ -139,18 +143,36 @@ def main():
                     (0, 0, 255),
                     cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS
                 )
+                indices_found = [False, False]
                 for keypoint, index in keypoints:
+                    x, y = keypoint.pt
                     if index == 0:
-                        x, y = keypoint.pt
-                        fx = (x - 300) / 300 * SCALE
-                        fy = (y - 250) / 250 * SCALE
-                        sock.sendto(struct.pack("fff", fx, fy, 0.0), ('127.0.0.1', 1351))
+                        fx = (x - 300) / 300 * scale
+                        fy = (y - 250) / 250 * scale
+                    indices_found[index] = x, y
+
+                if all(indices_found):
+                    left_pos_x, left_pos_y = indices_found[0]
+                    right_pos_x, right_pos_y = indices_found[1]
+                    a = left_pos_x - right_pos_x
+                    b = left_pos_y - right_pos_y
+                    eye_distance = np.sqrt(a*a + b*b)
+                    fz = REAL_EYE_DISTANCE / (2 * np.tan(eye_distance/100.0))
+                    print('fz: ', fz)
+
+                sock.sendto(struct.pack("fff", fx, fy, fz), ('127.0.0.1', 1351))
 
             cv2.imshow('img', img)
 
             key = cv2.waitKey(10)
             if key == 27:
                 break
+            elif key == ord('k'):
+                scale += 0.1
+                print('scale: ', scale)
+            elif key == ord('j'):
+                scale -= 0.1
+                print('scale: ', scale)
 
     vid.release()
     cv2.destroyAllWindows()
