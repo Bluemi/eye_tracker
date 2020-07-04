@@ -1,5 +1,13 @@
+import struct
+
 import cv2
 import numpy as np
+import socket
+
+
+THRESHOLD = 28
+THRESHOLD_RANGE = 40
+SCALE = 0.7
 
 
 def capture_photo():
@@ -76,13 +84,9 @@ def blob_process(img, detector, begin_threshold):
         img = cv2.medianBlur(img, 3)
         keypoints = detector.detect(img)
         threshold += 2
-        if threshold > begin_threshold + 20:
+        if threshold > begin_threshold + THRESHOLD_RANGE:
             break
     return keypoints, img
-
-
-def nothing(_arg):
-    pass
 
 
 def main():
@@ -94,55 +98,59 @@ def main():
     face_cascade = cv2.CascadeClassifier('models/face_model.xml')
     eye_cascade = cv2.CascadeClassifier('models/eye_model.xml')
 
-    cv2.namedWindow('trackbar')
-    cv2.moveWindow('trackbar', 500, 500)
-    cv2.createTrackbar('threshold', 'trackbar', 0, 255, nothing)
+    with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+        vid = cv2.VideoCapture(0)
+        while True:
+            ret, img = vid.read()
 
-    vid = cv2.VideoCapture(0)
-    while True:
-        ret, img = vid.read()
+            # img = cv2.medianBlur(img, 5)
 
-        keypoints = []
-        global_eye_coords = []
+            keypoints = []
+            global_eye_coords = []
 
-        face, face_coords = detect_face(img, face_cascade)
-        if face is not None:
-            for eye, eye_coords in detect_eyes(face, eye_cascade):
-                if eye is not None:
-                    eye, eyebrow_height = cut_eyebrows(eye)
-                    global_eye_coords.append(eye_coords)
+            face, face_coords = detect_face(img, face_cascade)
+            if face is not None:
+                for index, eye_and_coords in enumerate(detect_eyes(face, eye_cascade)):
+                    eye, eye_coords = eye_and_coords
+                    if eye is not None:
+                        eye, eyebrow_height = cut_eyebrows(eye)
+                        global_eye_coords.append(eye_coords)
 
-                    threshold = cv2.getTrackbarPos('threshold', 'trackbar')
-                    eye_keypoints, edit_img = blob_process(eye, detector, threshold)
-                    if eye_keypoints:
-                        print('>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>')
-                        for keypoint in eye_keypoints:
+                        eye_keypoints, edit_img = blob_process(eye, detector, THRESHOLD)
+                        if eye_keypoints:
+                            keypoint = eye_keypoints[0]
                             keypoint.pt = (
                                 keypoint.pt[0] + face_coords[0] + eye_coords[0],
                                 keypoint.pt[1] + face_coords[1] + eye_coords[1] + eyebrow_height
                             )
-                            keypoints.append(keypoint)
-                    else:
-                        print('no keypoints')
-                        cv2.imshow('img_edit', edit_img)
-                else:
-                    print('no eyes')
-        else:
-            print('no face')
+                            keypoints.append((keypoint, index))
 
-        for eye_coord in global_eye_coords:
-            x, y, w, h = eye_coord
-            x += face_coords[0]
-            y += face_coords[1]
-            cv2.rectangle(img, (x, y), (x+w, y+h), (255, 255, 0), 2)
+            for eye_coord in global_eye_coords:
+                x, y, w, h = eye_coord
+                x += face_coords[0]
+                y += face_coords[1]
+                cv2.rectangle(img, (x, y), (x+w, y+h), (255, 255, 0), 2)
 
-        if keypoints:
-            cv2.drawKeypoints(img, keypoints, img, (0, 0, 255), cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS)
-        cv2.imshow('img', img)
+            if keypoints:
+                cv2.drawKeypoints(
+                    img,
+                    list(map(lambda kp: kp[0], keypoints)),
+                    img,
+                    (0, 0, 255),
+                    cv2.DRAW_MATCHES_FLAGS_DRAW_RICH_KEYPOINTS
+                )
+                for keypoint, index in keypoints:
+                    if index == 0:
+                        x, y = keypoint.pt
+                        fx = (x - 300) / 300 * SCALE
+                        fy = (y - 250) / 250 * SCALE
+                        sock.sendto(struct.pack("fff", fx, fy, 0.0), ('127.0.0.1', 1351))
 
-        key = cv2.waitKey(10)
-        if key == 27:
-            break
+            cv2.imshow('img', img)
+
+            key = cv2.waitKey(10)
+            if key == 27:
+                break
 
     vid.release()
     cv2.destroyAllWindows()
