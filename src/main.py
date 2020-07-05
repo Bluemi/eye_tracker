@@ -8,6 +8,7 @@ import socket
 THRESHOLD = 28
 THRESHOLD_RANGE = 40
 SCALE = 1.0
+Z_SCALE = 0.42
 REAL_EYE_DISTANCE = 6.5
 
 
@@ -157,7 +158,7 @@ def main():
                     a = left_pos_x - right_pos_x
                     b = left_pos_y - right_pos_y
                     eye_distance = np.sqrt(a*a + b*b)
-                    fz = REAL_EYE_DISTANCE / (2 * np.tan(eye_distance/100.0))
+                    fz = REAL_EYE_DISTANCE * Z_SCALE / (2 * np.tan(eye_distance/100.0))
                     print('fz: ', fz)
 
                 sock.sendto(struct.pack("fff", fx, fy, fz), ('127.0.0.1', 1351))
